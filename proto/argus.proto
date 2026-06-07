@@ -1,0 +1,55 @@
+syntax = "proto3";
+
+package argus;
+
+option go_package = "github.com/jtave111/argus/proto";
+
+// AgentService define os RPCs entre agente e servidor.
+service AgentService {
+  // Stream bidirecional: agente envia telemetria, servidor envia comandos.
+  rpc Connect(stream AgentMessage) returns (stream ServerCommand);
+}
+
+// AgentMessage é qualquer mensagem enviada pelo agente ao servidor.
+message AgentMessage {
+  string agent_id = 1;
+  oneof payload {
+    Heartbeat  heartbeat  = 2;
+    Metrics    metrics    = 3;
+    CommandResult result  = 4;
+  }
+}
+
+// ServerCommand é qualquer comando enviado pelo servidor ao agente.
+message ServerCommand {
+  string command_id = 1;
+  oneof payload {
+    ServiceCommand service = 2;
+    ShellCommand   shell   = 3;
+  }
+}
+
+message Heartbeat {
+  int64 timestamp = 1;
+}
+
+message Metrics {
+  float cpu_percent  = 1;
+  float ram_percent  = 2;
+  float disk_percent = 3;
+}
+
+message ServiceCommand {
+  string action  = 1; // start | stop | restart | status
+  string service = 2;
+}
+
+message ShellCommand {
+  string command = 1;
+}
+
+message CommandResult {
+  string command_id = 1;
+  string output     = 2;
+  int32  exit_code  = 3;
+}
