@@ -18,7 +18,7 @@ agent-windows:
 
 # Gera código Go a partir dos .proto
 proto:
-	protoc --go_out=. --go-grpc_out=. proto/argus.proto
+	protoc --go_out=paths=source_relative:. --go-grpc_out=paths=source_relative:. proto/argus.proto
 
 # Remove binários compilados
 clean:

@@ -120,6 +120,26 @@ Argus/
 
 ---
 
+## Setup Local
+
+### Banco de dados
+
+```bash
+# Inicializar cluster PostgreSQL (só na primeira vez)
+sudo -u postgres initdb --locale=C.UTF-8 --encoding=UTF8 -D '/var/lib/postgres/data'
+sudo systemctl enable --now postgresql
+
+# Criar usuário e banco
+psql -U postgres -c "CREATE USER zero WITH PASSWORD 'sua_senha';"
+psql -U postgres -c "CREATE DATABASE argus OWNER zero;"
+
+# Rodar migrations
+go install github.com/pressly/goose/v3/cmd/goose@latest
+goose -dir sql/migrations postgres "host=localhost user=zero password=sua_senha dbname=argus sslmode=disable" up
+```
+
+---
+
 ## Build
 
 ### Pré-requisitos
