@@ -1,6 +1,16 @@
 package main
 
-import "fmt"
+import (
+	"flag"
+	"fmt"
+	"log"
+
+	"github.com/jtave111/argus/internal/agent"
+)
+
+var _ = flag.String
+var _ = log.Fatal
+var _ = agent.New
 
 func main() {
 	fmt.Println("Argus agent starting...")
