@@ -8,5 +8,6 @@
     <file url="file://$PROJECT_DIR$/sql/migrations/00005_create_metrics_and_commands.sql" value="a03360f1-f1c0-4045-ba9b-0b00f2bddc96" />
     <file url="file://$PROJECT_DIR$/sql/migrations/00006_agent_add_user_binding.sql" value="a03360f1-f1c0-4045-ba9b-0b00f2bddc96" />
     <file url="file://$PROJECT_DIR$/sql/queries.sql" value="a03360f1-f1c0-4045-ba9b-0b00f2bddc96" />
+    <file url="file://$PROJECT_DIR$/sql/schema.sql" value="a03360f1-f1c0-4045-ba9b-0b00f2bddc96" />
   </component>
 </project>

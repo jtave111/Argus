@@ -13,9 +13,14 @@ import (
 type Querier interface {
 	AcceptOrganizationInvite(ctx context.Context, arg AcceptOrganizationInviteParams) error
 	// ============================================================
+	// SERVICE_DEPENDENCIES
+	// ============================================================
+	AddServiceDependency(ctx context.Context, arg AddServiceDependencyParams) error
+	// ============================================================
 	// USER_ORGANIZATIONS
 	// ============================================================
 	AddUserToOrganization(ctx context.Context, arg AddUserToOrganizationParams) (UserOrganization, error)
+	BindAgentToUserOrg(ctx context.Context, arg BindAgentToUserOrgParams) error
 	// ============================================================
 	// ORGANIZATION_INVITES
 	// ============================================================
@@ -24,6 +29,10 @@ type Querier interface {
 	// NETWORKS
 	// ============================================================
 	CreateNetwork(ctx context.Context, arg CreateNetworkParams) (Network, error)
+	// ============================================================
+	// NETWORK_TOPOLOGY
+	// ============================================================
+	CreateNetworkTopologyLink(ctx context.Context, arg CreateNetworkTopologyLinkParams) (NetworkTopology, error)
 	// ============================================================
 	// ORGANIZATIONS
 	// ============================================================
@@ -36,8 +45,11 @@ type Querier interface {
 	DeactivateNetwork(ctx context.Context, id uuid.UUID) error
 	// TODO: escreva uma query para desativar um usuário (is_active = false) pelo id
 	DeactivateUser(ctx context.Context, id uuid.UUID) error
+	DeleteAgentNetworkInterfaces(ctx context.Context, agentID uuid.UUID) error
+	DeleteNetworkTopologyLink(ctx context.Context, id uuid.UUID) error
 	// TTL: apaga métricas mais antigas que X. Ex: $1 = '30 days'
-	DeleteOldMetrics(ctx context.Context, dollar_1 int64) error
+	DeleteOldMetrics(ctx context.Context, dollar_1 string) error
+	DeleteServiceDependency(ctx context.Context, arg DeleteServiceDependencyParams) error
 	GetAgentByID(ctx context.Context, id uuid.UUID) (Agent, error)
 	GetAgentByTokenHash(ctx context.Context, tokenHash string) (Agent, error)
 	GetAgentHardware(ctx context.Context, agentID uuid.UUID) (AgentHardware, error)
@@ -66,12 +78,16 @@ type Querier interface {
 	// TODO: escreva uma query que lista todos os agents de uma organização inteira
 	// (join agents → networks filtrando por networks.organization_id)
 	ListAgentsByOrg(ctx context.Context, organizationID uuid.UUID) ([]Agent, error)
+	ListAgentsByUserOrg(ctx context.Context, userOrganizationID uuid.NullUUID) ([]Agent, error)
+	// TODO: escreva uma query que lista os últimos N audit logs de uma organização
+	ListAuditLogsByOrg(ctx context.Context, arg ListAuditLogsByOrgParams) ([]AuditLog, error)
 	// TODO: escreva uma query que lista os últimos N resultados de comandos de um agent
 	// dica: use LIMIT $2 e ORDER BY executed_at DESC
 	ListCommandResultsByAgent(ctx context.Context, arg ListCommandResultsByAgentParams) ([]CommandResult, error)
+	ListInterfacesByAgent(ctx context.Context, agentID uuid.UUID) ([]AgentNetworkInterface, error)
 	// TODO: escreva uma query que retorna as métricas de um agent a partir de uma data ($2)
 	// útil para montar gráficos no dashboard
-	ListMetricsSince(ctx context.Context, agentID uuid.UUID) ([]Metric, error)
+	ListMetricsSince(ctx context.Context, arg ListMetricsSinceParams) ([]Metric, error)
 	ListNetworksByOrg(ctx context.Context, organizationID uuid.UUID) ([]Network, error)
 	// TODO: escreva uma query que lista todos os membros de uma organização
 	// (join users + user_organizations filtrando por organization_id)
@@ -79,7 +95,9 @@ type Querier interface {
 	// TODO: escreva uma query que retorna todas as organizations onde um user está inserido
 	// (join entre organizations e user_organizations filtrando por user_id e accepted_at IS NOT NULL)
 	ListOrganizationsByUser(ctx context.Context, userID uuid.UUID) ([]ListOrganizationsByUserRow, error)
+	ListServiceDependencies(ctx context.Context, serviceID uuid.UUID) ([]Service, error)
 	ListServicesByAgent(ctx context.Context, agentID uuid.UUID) ([]Service, error)
+	ListTopologyByNetwork(ctx context.Context, networkAID uuid.UUID) ([]NetworkTopology, error)
 	// ============================================================
 	// AGENTS
 	// ============================================================
@@ -87,7 +105,7 @@ type Querier interface {
 	SetAgentOffline(ctx context.Context, id uuid.UUID) error
 	// marca offline todos os agents que não mandam heartbeat há X tempo
 	// $1 é um intervalo: ex '2 minutes'
-	SetOfflineAgentsSince(ctx context.Context, dollar_1 int64) error
+	SetOfflineAgentsSince(ctx context.Context, dollar_1 string) error
 	UpdateAgentLastSeen(ctx context.Context, id uuid.UUID) error
 	// TODO: escreva uma query para atualizar o health_status e last_health_check de um serviço pelo id
 	UpdateServiceHealth(ctx context.Context, arg UpdateServiceHealthParams) error
@@ -96,6 +114,10 @@ type Querier interface {
 	// AGENT_HARDWARE
 	// ============================================================
 	UpsertAgentHardware(ctx context.Context, arg UpsertAgentHardwareParams) (AgentHardware, error)
+	// ============================================================
+	// AGENT_NETWORK_INTERFACES
+	// ============================================================
+	UpsertAgentNetworkInterface(ctx context.Context, arg UpsertAgentNetworkInterfaceParams) (AgentNetworkInterface, error)
 	// ============================================================
 	// SERVICES
 	// ============================================================

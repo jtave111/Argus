@@ -164,6 +164,16 @@ SELECT
     ORDER BY n.name, a.hostname;
 
 
+-- name: BindAgentToUserOrg :exec
+UPDATE agents
+SET user_organization_id = $2, os_user = $3, os_user_fullname = $4, os_user_email = $5
+WHERE id = $1;
+
+-- name: ListAgentsByUserOrg :many
+SELECT * FROM agents
+WHERE user_organization_id = $1
+ORDER BY hostname;
+
 -- name: UpdateAgentLastSeen :exec
 UPDATE agents SET last_seen = NOW(), is_online = true
 WHERE id = $1;
@@ -215,9 +225,9 @@ LIMIT 1;
 -- TODO: escreva uma query que retorna as métricas de um agent a partir de uma data ($2)
 -- útil para montar gráficos no dashboard
 -- name: ListMetricsSince :many
-SELECT  * FROM metrics WHERE metrics.agent_id = $1
-   and created_at >= &2
-   ORDER BY created_at ASC;
+SELECT * FROM metrics
+WHERE agent_id = $1 AND created_at >= $2
+ORDER BY created_at ASC;
 
 -- name: DeleteOldMetrics :exec
 -- TTL: apaga métricas mais antigas que X. Ex: $1 = '30 days'
@@ -246,8 +256,8 @@ ORDER BY name;
 
 -- TODO: escreva uma query para atualizar o health_status e last_health_check de um serviço pelo id
 -- name: UpdateServiceHealth :exec
-UPDATE services SET health_status = $1, last_health_check = date(now())
-    WHERE services.id = $2;
+UPDATE services SET health_status = $1, last_health_check = NOW()
+WHERE id = $2;
 
 -- ============================================================
 -- COMMAND_RESULTS
@@ -265,13 +275,76 @@ WHERE command_id = $1 LIMIT 1;
 -- TODO: escreva uma query que lista os últimos N resultados de comandos de um agent
 -- dica: use LIMIT $2 e ORDER BY executed_at DESC
 -- name: ListCommandResultsByAgent :many
-
 SELECT * FROM command_results
-    WHERE
-        command_results.agent_id = $1
-    ORDER BY
-        executed_at
-    DESC LIMIT $2;
+WHERE agent_id = $1
+ORDER BY executed_at DESC
+LIMIT $2;
+
+
+
+-- ============================================================
+-- NETWORK_TOPOLOGY
+-- ============================================================
+
+-- name: CreateNetworkTopologyLink :one
+INSERT INTO network_topology (network_a_id, network_b_id, link_type, description)
+VALUES ($1, $2, $3, $4)
+RETURNING *;
+
+-- name: ListTopologyByNetwork :many
+SELECT * FROM network_topology
+WHERE network_a_id = $1 OR network_b_id = $1
+ORDER BY created_at DESC;
+
+-- name: DeleteNetworkTopologyLink :exec
+DELETE FROM network_topology
+WHERE id = $1;
+
+
+
+-- ============================================================
+-- AGENT_NETWORK_INTERFACES
+-- ============================================================
+
+-- name: UpsertAgentNetworkInterface :one
+INSERT INTO agent_network_interfaces (agent_id, interface_name, ip_address, mac_address, speed_mbps, is_up)
+VALUES ($1, $2, $3, $4, $5, $6)
+ON CONFLICT (agent_id, interface_name) DO UPDATE SET
+    ip_address = EXCLUDED.ip_address,
+    mac_address = EXCLUDED.mac_address,
+    speed_mbps = EXCLUDED.speed_mbps,
+    is_up = EXCLUDED.is_up,
+    updated_at = NOW()
+RETURNING *;
+
+-- name: ListInterfacesByAgent :many
+SELECT * FROM agent_network_interfaces
+WHERE agent_id = $1
+ORDER BY interface_name;
+
+-- name: DeleteAgentNetworkInterfaces :exec
+DELETE FROM agent_network_interfaces
+WHERE agent_id = $1;
+
+
+
+-- ============================================================
+-- SERVICE_DEPENDENCIES
+-- ============================================================
+
+-- name: AddServiceDependency :exec
+INSERT INTO service_dependencies (service_id, depends_on_id)
+VALUES ($1, $2)
+ON CONFLICT DO NOTHING;
+
+-- name: ListServiceDependencies :many
+SELECT s.* FROM services s
+JOIN service_dependencies sd ON sd.depends_on_id = s.id
+WHERE sd.service_id = $1;
+
+-- name: DeleteServiceDependency :exec
+DELETE FROM service_dependencies
+WHERE service_id = $1 AND depends_on_id = $2;
 
 
 
@@ -285,3 +358,6 @@ VALUES ($1, $2, $3, $4, $5, $6, $7);
 
 -- TODO: escreva uma query que lista os últimos N audit logs de uma organização
 -- name: ListAuditLogsByOrg :many
+SELECT * FROM audit_logs
+WHERE organization_id = $1 AND created_at >= $2
+ORDER BY created_at DESC;

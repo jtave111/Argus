@@ -29,6 +29,26 @@ func (q *Queries) AcceptOrganizationInvite(ctx context.Context, arg AcceptOrgani
 	return err
 }
 
+const addServiceDependency = `-- name: AddServiceDependency :exec
+
+INSERT INTO service_dependencies (service_id, depends_on_id)
+VALUES ($1, $2)
+ON CONFLICT DO NOTHING
+`
+
+type AddServiceDependencyParams struct {
+	ServiceID   uuid.UUID `db:"service_id" json:"service_id"`
+	DependsOnID uuid.UUID `db:"depends_on_id" json:"depends_on_id"`
+}
+
+// ============================================================
+// SERVICE_DEPENDENCIES
+// ============================================================
+func (q *Queries) AddServiceDependency(ctx context.Context, arg AddServiceDependencyParams) error {
+	_, err := q.db.ExecContext(ctx, addServiceDependency, arg.ServiceID, arg.DependsOnID)
+	return err
+}
+
 const addUserToOrganization = `-- name: AddUserToOrganization :one
 
 INSERT INTO user_organizations (user_id, organization_id, role, invited_by)
@@ -64,6 +84,31 @@ func (q *Queries) AddUserToOrganization(ctx context.Context, arg AddUserToOrgani
 		&i.CreatedAt,
 	)
 	return i, err
+}
+
+const bindAgentToUserOrg = `-- name: BindAgentToUserOrg :exec
+UPDATE agents
+SET user_organization_id = $2, os_user = $3, os_user_fullname = $4, os_user_email = $5
+WHERE id = $1
+`
+
+type BindAgentToUserOrgParams struct {
+	ID                 uuid.UUID      `db:"id" json:"id"`
+	UserOrganizationID uuid.NullUUID  `db:"user_organization_id" json:"user_organization_id"`
+	OsUser             sql.NullString `db:"os_user" json:"os_user"`
+	OsUserFullname     sql.NullString `db:"os_user_fullname" json:"os_user_fullname"`
+	OsUserEmail        sql.NullString `db:"os_user_email" json:"os_user_email"`
+}
+
+func (q *Queries) BindAgentToUserOrg(ctx context.Context, arg BindAgentToUserOrgParams) error {
+	_, err := q.db.ExecContext(ctx, bindAgentToUserOrg,
+		arg.ID,
+		arg.UserOrganizationID,
+		arg.OsUser,
+		arg.OsUserFullname,
+		arg.OsUserEmail,
+	)
+	return err
 }
 
 const createInvite = `-- name: CreateInvite :one
@@ -176,6 +221,42 @@ func (q *Queries) CreateNetwork(ctx context.Context, arg CreateNetworkParams) (N
 	return i, err
 }
 
+const createNetworkTopologyLink = `-- name: CreateNetworkTopologyLink :one
+
+INSERT INTO network_topology (network_a_id, network_b_id, link_type, description)
+VALUES ($1, $2, $3, $4)
+RETURNING id, network_a_id, network_b_id, link_type, description, created_at
+`
+
+type CreateNetworkTopologyLinkParams struct {
+	NetworkAID  uuid.UUID      `db:"network_a_id" json:"network_a_id"`
+	NetworkBID  uuid.UUID      `db:"network_b_id" json:"network_b_id"`
+	LinkType    string         `db:"link_type" json:"link_type"`
+	Description sql.NullString `db:"description" json:"description"`
+}
+
+// ============================================================
+// NETWORK_TOPOLOGY
+// ============================================================
+func (q *Queries) CreateNetworkTopologyLink(ctx context.Context, arg CreateNetworkTopologyLinkParams) (NetworkTopology, error) {
+	row := q.db.QueryRowContext(ctx, createNetworkTopologyLink,
+		arg.NetworkAID,
+		arg.NetworkBID,
+		arg.LinkType,
+		arg.Description,
+	)
+	var i NetworkTopology
+	err := row.Scan(
+		&i.ID,
+		&i.NetworkAID,
+		&i.NetworkBID,
+		&i.LinkType,
+		&i.Description,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const createOrganization = `-- name: CreateOrganization :one
 
 INSERT INTO organizations (name, slug, email, password_hash, agent_registration_key)
@@ -271,14 +352,49 @@ func (q *Queries) DeactivateUser(ctx context.Context, id uuid.UUID) error {
 	return err
 }
 
+const deleteAgentNetworkInterfaces = `-- name: DeleteAgentNetworkInterfaces :exec
+DELETE FROM agent_network_interfaces
+WHERE agent_id = $1
+`
+
+func (q *Queries) DeleteAgentNetworkInterfaces(ctx context.Context, agentID uuid.UUID) error {
+	_, err := q.db.ExecContext(ctx, deleteAgentNetworkInterfaces, agentID)
+	return err
+}
+
+const deleteNetworkTopologyLink = `-- name: DeleteNetworkTopologyLink :exec
+DELETE FROM network_topology
+WHERE id = $1
+`
+
+func (q *Queries) DeleteNetworkTopologyLink(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.ExecContext(ctx, deleteNetworkTopologyLink, id)
+	return err
+}
+
 const deleteOldMetrics = `-- name: DeleteOldMetrics :exec
 DELETE FROM metrics
 WHERE created_at < NOW() - ($1::interval)
 `
 
 // TTL: apaga métricas mais antigas que X. Ex: $1 = '30 days'
-func (q *Queries) DeleteOldMetrics(ctx context.Context, dollar_1 int64) error {
+func (q *Queries) DeleteOldMetrics(ctx context.Context, dollar_1 string) error {
 	_, err := q.db.ExecContext(ctx, deleteOldMetrics, dollar_1)
+	return err
+}
+
+const deleteServiceDependency = `-- name: DeleteServiceDependency :exec
+DELETE FROM service_dependencies
+WHERE service_id = $1 AND depends_on_id = $2
+`
+
+type DeleteServiceDependencyParams struct {
+	ServiceID   uuid.UUID `db:"service_id" json:"service_id"`
+	DependsOnID uuid.UUID `db:"depends_on_id" json:"depends_on_id"`
+}
+
+func (q *Queries) DeleteServiceDependency(ctx context.Context, arg DeleteServiceDependencyParams) error {
+	_, err := q.db.ExecContext(ctx, deleteServiceDependency, arg.ServiceID, arg.DependsOnID)
 	return err
 }
 
@@ -802,14 +918,110 @@ func (q *Queries) ListAgentsByOrg(ctx context.Context, organizationID uuid.UUID)
 	return items, nil
 }
 
-const listCommandResultsByAgent = `-- name: ListCommandResultsByAgent :many
+const listAgentsByUserOrg = `-- name: ListAgentsByUserOrg :many
+SELECT id, network_id, token_hash, hostname, fqdn, os, distro, arch, kernel_version, ip_address, mac_address, agent_version, is_online, last_seen, latitude, longitude, location_name, city, country_code, created_at, user_organization_id, os_user, os_user_fullname, os_user_email FROM agents
+WHERE user_organization_id = $1
+ORDER BY hostname
+`
 
+func (q *Queries) ListAgentsByUserOrg(ctx context.Context, userOrganizationID uuid.NullUUID) ([]Agent, error) {
+	rows, err := q.db.QueryContext(ctx, listAgentsByUserOrg, userOrganizationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Agent{}
+	for rows.Next() {
+		var i Agent
+		if err := rows.Scan(
+			&i.ID,
+			&i.NetworkID,
+			&i.TokenHash,
+			&i.Hostname,
+			&i.Fqdn,
+			&i.Os,
+			&i.Distro,
+			&i.Arch,
+			&i.KernelVersion,
+			&i.IpAddress,
+			&i.MacAddress,
+			&i.AgentVersion,
+			&i.IsOnline,
+			&i.LastSeen,
+			&i.Latitude,
+			&i.Longitude,
+			&i.LocationName,
+			&i.City,
+			&i.CountryCode,
+			&i.CreatedAt,
+			&i.UserOrganizationID,
+			&i.OsUser,
+			&i.OsUserFullname,
+			&i.OsUserEmail,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAuditLogsByOrg = `-- name: ListAuditLogsByOrg :many
+SELECT id, organization_id, user_id, action, target_type, target_id, ip_address, user_agent, created_at FROM audit_logs
+WHERE organization_id = $1 AND created_at >= $2
+ORDER BY created_at DESC
+`
+
+type ListAuditLogsByOrgParams struct {
+	OrganizationID uuid.NullUUID `db:"organization_id" json:"organization_id"`
+	CreatedAt      time.Time     `db:"created_at" json:"created_at"`
+}
+
+// TODO: escreva uma query que lista os últimos N audit logs de uma organização
+func (q *Queries) ListAuditLogsByOrg(ctx context.Context, arg ListAuditLogsByOrgParams) ([]AuditLog, error) {
+	rows, err := q.db.QueryContext(ctx, listAuditLogsByOrg, arg.OrganizationID, arg.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AuditLog{}
+	for rows.Next() {
+		var i AuditLog
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrganizationID,
+			&i.UserID,
+			&i.Action,
+			&i.TargetType,
+			&i.TargetID,
+			&i.IpAddress,
+			&i.UserAgent,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCommandResultsByAgent = `-- name: ListCommandResultsByAgent :many
 SELECT id, agent_id, command_id, command_str, output, exit_code, executed_at FROM command_results
-    WHERE
-        command_results.agent_id = $1
-    ORDER BY
-        executed_at
-    DESC LIMIT $2
+WHERE agent_id = $1
+ORDER BY executed_at DESC
+LIMIT $2
 `
 
 type ListCommandResultsByAgentParams struct {
@@ -850,16 +1062,59 @@ func (q *Queries) ListCommandResultsByAgent(ctx context.Context, arg ListCommand
 	return items, nil
 }
 
-const listMetricsSince = `-- name: ListMetricsSince :many
-SELECT  id, agent_id, cpu_percent, ram_percent, disk_percent, net_in_kbps, net_out_kbps, created_at FROM metrics WHERE metrics.agent_id = $1
-   and created_at >= &2
-   ORDER BY created_at ASC
+const listInterfacesByAgent = `-- name: ListInterfacesByAgent :many
+SELECT id, agent_id, interface_name, ip_address, mac_address, speed_mbps, is_up, updated_at FROM agent_network_interfaces
+WHERE agent_id = $1
+ORDER BY interface_name
 `
+
+func (q *Queries) ListInterfacesByAgent(ctx context.Context, agentID uuid.UUID) ([]AgentNetworkInterface, error) {
+	rows, err := q.db.QueryContext(ctx, listInterfacesByAgent, agentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AgentNetworkInterface{}
+	for rows.Next() {
+		var i AgentNetworkInterface
+		if err := rows.Scan(
+			&i.ID,
+			&i.AgentID,
+			&i.InterfaceName,
+			&i.IpAddress,
+			&i.MacAddress,
+			&i.SpeedMbps,
+			&i.IsUp,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listMetricsSince = `-- name: ListMetricsSince :many
+SELECT id, agent_id, cpu_percent, ram_percent, disk_percent, net_in_kbps, net_out_kbps, created_at FROM metrics
+WHERE agent_id = $1 AND created_at >= $2
+ORDER BY created_at ASC
+`
+
+type ListMetricsSinceParams struct {
+	AgentID   uuid.UUID `db:"agent_id" json:"agent_id"`
+	CreatedAt time.Time `db:"created_at" json:"created_at"`
+}
 
 // TODO: escreva uma query que retorna as métricas de um agent a partir de uma data ($2)
 // útil para montar gráficos no dashboard
-func (q *Queries) ListMetricsSince(ctx context.Context, agentID uuid.UUID) ([]Metric, error) {
-	rows, err := q.db.QueryContext(ctx, listMetricsSince, agentID)
+func (q *Queries) ListMetricsSince(ctx context.Context, arg ListMetricsSinceParams) ([]Metric, error) {
+	rows, err := q.db.QueryContext(ctx, listMetricsSince, arg.AgentID, arg.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -1063,6 +1318,55 @@ func (q *Queries) ListOrganizationsByUser(ctx context.Context, userID uuid.UUID)
 	return items, nil
 }
 
+const listServiceDependencies = `-- name: ListServiceDependencies :many
+SELECT s.id, s.agent_id, s.name, s.display_name, s.description, s.type, s.status, s.enabled, s.pid, s.run_as_user, s.port, s.protocol, s.restart_policy, s.health_check_cmd, s.health_check_url, s.last_health_check, s.health_status, s.uptime_seconds, s.updated_at FROM services s
+JOIN service_dependencies sd ON sd.depends_on_id = s.id
+WHERE sd.service_id = $1
+`
+
+func (q *Queries) ListServiceDependencies(ctx context.Context, serviceID uuid.UUID) ([]Service, error) {
+	rows, err := q.db.QueryContext(ctx, listServiceDependencies, serviceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Service{}
+	for rows.Next() {
+		var i Service
+		if err := rows.Scan(
+			&i.ID,
+			&i.AgentID,
+			&i.Name,
+			&i.DisplayName,
+			&i.Description,
+			&i.Type,
+			&i.Status,
+			&i.Enabled,
+			&i.Pid,
+			&i.RunAsUser,
+			&i.Port,
+			&i.Protocol,
+			&i.RestartPolicy,
+			&i.HealthCheckCmd,
+			&i.HealthCheckUrl,
+			&i.LastHealthCheck,
+			&i.HealthStatus,
+			&i.UptimeSeconds,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listServicesByAgent = `-- name: ListServicesByAgent :many
 SELECT id, agent_id, name, display_name, description, type, status, enabled, pid, run_as_user, port, protocol, restart_policy, health_check_cmd, health_check_url, last_health_check, health_status, uptime_seconds, updated_at FROM services
 WHERE agent_id = $1
@@ -1098,6 +1402,42 @@ func (q *Queries) ListServicesByAgent(ctx context.Context, agentID uuid.UUID) ([
 			&i.HealthStatus,
 			&i.UptimeSeconds,
 			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listTopologyByNetwork = `-- name: ListTopologyByNetwork :many
+SELECT id, network_a_id, network_b_id, link_type, description, created_at FROM network_topology
+WHERE network_a_id = $1 OR network_b_id = $1
+ORDER BY created_at DESC
+`
+
+func (q *Queries) ListTopologyByNetwork(ctx context.Context, networkAID uuid.UUID) ([]NetworkTopology, error) {
+	rows, err := q.db.QueryContext(ctx, listTopologyByNetwork, networkAID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []NetworkTopology{}
+	for rows.Next() {
+		var i NetworkTopology
+		if err := rows.Scan(
+			&i.ID,
+			&i.NetworkAID,
+			&i.NetworkBID,
+			&i.LinkType,
+			&i.Description,
+			&i.CreatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -1207,7 +1547,7 @@ WHERE last_seen < NOW() - ($1::interval) AND is_online = true
 
 // marca offline todos os agents que não mandam heartbeat há X tempo
 // $1 é um intervalo: ex '2 minutes'
-func (q *Queries) SetOfflineAgentsSince(ctx context.Context, dollar_1 int64) error {
+func (q *Queries) SetOfflineAgentsSince(ctx context.Context, dollar_1 string) error {
 	_, err := q.db.ExecContext(ctx, setOfflineAgentsSince, dollar_1)
 	return err
 }
@@ -1223,8 +1563,8 @@ func (q *Queries) UpdateAgentLastSeen(ctx context.Context, id uuid.UUID) error {
 }
 
 const updateServiceHealth = `-- name: UpdateServiceHealth :exec
-UPDATE services SET health_status = $1, last_health_check = date(now())
-    WHERE services.id = $2
+UPDATE services SET health_status = $1, last_health_check = NOW()
+WHERE id = $2
 `
 
 type UpdateServiceHealthParams struct {
@@ -1291,6 +1631,54 @@ func (q *Queries) UpsertAgentHardware(ctx context.Context, arg UpsertAgentHardwa
 		&i.CpuThreads,
 		&i.RamTotalBytes,
 		&i.DiskTotalBytes,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const upsertAgentNetworkInterface = `-- name: UpsertAgentNetworkInterface :one
+
+INSERT INTO agent_network_interfaces (agent_id, interface_name, ip_address, mac_address, speed_mbps, is_up)
+VALUES ($1, $2, $3, $4, $5, $6)
+ON CONFLICT (agent_id, interface_name) DO UPDATE SET
+    ip_address = EXCLUDED.ip_address,
+    mac_address = EXCLUDED.mac_address,
+    speed_mbps = EXCLUDED.speed_mbps,
+    is_up = EXCLUDED.is_up,
+    updated_at = NOW()
+RETURNING id, agent_id, interface_name, ip_address, mac_address, speed_mbps, is_up, updated_at
+`
+
+type UpsertAgentNetworkInterfaceParams struct {
+	AgentID       uuid.UUID      `db:"agent_id" json:"agent_id"`
+	InterfaceName string         `db:"interface_name" json:"interface_name"`
+	IpAddress     string         `db:"ip_address" json:"ip_address"`
+	MacAddress    sql.NullString `db:"mac_address" json:"mac_address"`
+	SpeedMbps     sql.NullInt32  `db:"speed_mbps" json:"speed_mbps"`
+	IsUp          bool           `db:"is_up" json:"is_up"`
+}
+
+// ============================================================
+// AGENT_NETWORK_INTERFACES
+// ============================================================
+func (q *Queries) UpsertAgentNetworkInterface(ctx context.Context, arg UpsertAgentNetworkInterfaceParams) (AgentNetworkInterface, error) {
+	row := q.db.QueryRowContext(ctx, upsertAgentNetworkInterface,
+		arg.AgentID,
+		arg.InterfaceName,
+		arg.IpAddress,
+		arg.MacAddress,
+		arg.SpeedMbps,
+		arg.IsUp,
+	)
+	var i AgentNetworkInterface
+	err := row.Scan(
+		&i.ID,
+		&i.AgentID,
+		&i.InterfaceName,
+		&i.IpAddress,
+		&i.MacAddress,
+		&i.SpeedMbps,
+		&i.IsUp,
 		&i.UpdatedAt,
 	)
 	return i, err
