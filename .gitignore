@@ -1,5 +1,32 @@
+# Build
 bin/
+build/
+**/build/
+*.class
+*.jar
+
+# Gradle
+.gradle/
+**/.gradle/
+
+# IntelliJ
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# Eclipse
+.metadata/
+.project
+.classpath
+**/.settings/
+*.launch
+
+# Environment
+*.env
+.env.*
+
+# Web
 web/node_modules/
 web/.svelte-kit/
 web/build/
-*.env

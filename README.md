@@ -1,17 +1,20 @@
 <div align="center">
 
-```
+<pre>
  █████╗ ██████╗  ██████╗ ██╗   ██╗███████╗
 ██╔══██╗██╔══██╗██╔════╝ ██║   ██║██╔════╝
 ███████║██████╔╝██║  ███╗██║   ██║███████╗
 ██╔══██║██╔══██╗██║   ██║██║   ██║╚════██║
 ██║  ██║██║  ██║╚██████╔╝╚██████╔╝███████║
 ╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝  ╚═════╝ ╚══════╝
-```
+</pre>
 
 **Painel de controle remoto para gerenciamento de infraestrutura**
 
-[![Go](https://img.shields.io/badge/Go_1.23-00ADD8?style=flat-square&logo=go&logoColor=white)](https://go.dev/)
+[![Java](https://img.shields.io/badge/Java_21-ED8B00?style=flat-square&logo=openjdk&logoColor=white)](https://openjdk.org/)
+[![Spring Boot](https://img.shields.io/badge/Spring_Boot-6DB33F?style=flat-square&logo=springboot&logoColor=white)](https://spring.io/projects/spring-boot)
+[![C++](https://img.shields.io/badge/C%2B%2B-00599C?style=flat-square&logo=cplusplus&logoColor=white)](https://isocpp.org/)
+[![.NET](https://img.shields.io/badge/.NET-512BD4?style=flat-square&logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/)
 [![gRPC](https://img.shields.io/badge/gRPC-244C5A?style=flat-square&logo=grpc&logoColor=white)](https://grpc.io/)
 [![Protobuf](https://img.shields.io/badge/Protocol_Buffers-4285F4?style=flat-square&logo=google&logoColor=white)](https://protobuf.dev/)
 [![SvelteKit](https://img.shields.io/badge/SvelteKit-FF3E00?style=flat-square&logo=svelte&logoColor=white)](https://kit.svelte.dev/)
@@ -28,28 +31,30 @@
 
 O **Argus** é uma plataforma de gerenciamento remoto de infraestrutura. Agentes leves rodam dentro das redes remotas e **conectam para fora** ao servidor central — funcionam através de NAT e firewall sem precisar abrir uma única porta.
 
+É um **monorepo poliglota**: cada componente usa a stack ideal para o seu papel e todos compartilham um único contrato (`proto/argus.proto`).
+
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
 │  Sua casa / servidor local                                           │
 │                                                                      │
 │   ┌─────────────────────┐         ┌────────────────────────────┐    │
-│   │  Dashboard Web      │◀───────▶│  Argus Server (Go)         │    │
-│   │  SvelteKit          │  HTTP/  │  gRPC listener             │    │
+│   │  Dashboard Web      │◀───────▶│  Argus Server (Java)       │    │
+│   │  SvelteKit          │  HTTP/  │  Spring Boot · gRPC        │    │
 │   └─────────────────────┘  WS     │  REST + WebSocket API      │    │
 │                                   └────────────┬───────────────┘    │
 │                                                │                    │
 │                                   ┌────────────▼───────────────┐    │
 │                                   │  PostgreSQL                │    │
 │                                   └────────────────────────────┘    │
-└─────────────────────────────────────────────┲━━━━━━━━━━━━━━━━━━━━━━━┘
+└─────────────────────────────────────────────┲━━━━━━━━━━━━━━━━━━━━━━━┛
                                               ┃ gRPC / TLS
                           ┏━━━━━━━━━━━━━━━━━━━┻━━━━━━━━━━━━━━━━━━━━┓
                           ┃                                         ┃
           ┌───────────────┴────────────┐           ┌───────────────┴────────────┐
           │  Rede Remota A             │           │  Rede Remota B             │
           │                           │           │                            │
-          │  Agent (Linux / ARM)  ────┼──dial out─┤  Agent (Windows)           │
-          │  systemctl, /proc         │           │  sc.exe, WMI               │
+          │  Agent Linux (C++)  ──────┼──dial out─┤  Agent Windows (.NET)      │
+          │  systemd, /proc           │           │  SCM, WMI                  │
           └───────────────────────────┘           └────────────────────────────┘
 ```
 
@@ -62,11 +67,12 @@ O agente **inicia a conexão** — o servidor nunca precisa alcançar os endpoin
 | Módulo | Descrição |
 |--------|-----------|
 | **Métricas em tempo real** | CPU, RAM e disco coletados pelo agente e exibidos no dashboard via WebSocket |
-| **Gerenciamento de serviços** | start · stop · restart · status — Linux via `systemctl`, Windows via `sc.exe` |
+| **Gerenciamento de serviços** | start · stop · restart · status — Linux via `systemd`, Windows via SCM |
 | **Execução de shell** | Envio de comandos arbitrários aos endpoints com retorno de stdout e exit code |
-| **Suporte multi-plataforma** | Binários para Linux amd64, Linux ARM64 (Raspberry Pi) e Windows amd64 |
+| **Agentes nativos por SO** | C++ no Linux (incl. ARM/Raspberry Pi), .NET no Windows — binários enxutos, sem runtime extra |
 | **NAT traversal nativo** | Agente conecta para fora — sem VPN, sem port forwarding |
 | **Reconexão automática** | Agente mantém a stream viva e reconecta ao cair |
+| **Alta concorrência** | Servidor Java com Virtual Threads (Java 21) segura milhares de agentes simultâneos |
 | **Dashboard SOC** | Inventário de endpoints, status semafórico e feed de métricas (SvelteKit, planejado) |
 | **Autenticação por token** | Cada agente se autentica com `--token` no handshake gRPC |
 
@@ -74,7 +80,7 @@ O agente **inicia a conexão** — o servidor nunca precisa alcançar os endpoin
 
 ## Protocolo gRPC
 
-O contrato entre agente e servidor está definido em `proto/argus.proto`. Uma única RPC bidirecional:
+O contrato entre agente e servidor está definido em `proto/argus.proto` — a **fonte única da verdade**. O servidor Java e os agentes (C++/.NET) geram seus stubs a partir dele. Uma única RPC bidirecional:
 
 ```
 AgentService.Connect(stream AgentMessage) → stream ServerCommand
@@ -101,21 +107,24 @@ AgentService.Connect(stream AgentMessage) → stream ServerCommand
 
 ```
 Argus/
-├── cmd/
-│   ├── server/main.go       ← entrypoint do servidor (flags, config, wiring)
-│   └── agent/main.go        ← entrypoint do agente (--server, --token)
-├── internal/
-│   ├── server/server.go     ← hub central: recebe streams, expõe API
-│   ├── agent/agent.go       ← cliente gRPC, reconexão, dispatch de comandos
-│   └── platform/
-│       ├── linux.go         ← systemctl, /proc  [build tag: linux]
-│       └── windows.go       ← sc.exe, WMI       [build tag: windows]
 ├── proto/
-│   └── argus.proto          ← fonte da verdade do contrato agente ↔ servidor
-├── web/                     ← dashboard SvelteKit (embedado no binário — planejado)
-├── bin/                     ← binários compilados (ignorado pelo git)
-├── Makefile
-└── go.mod
+│   └── argus.proto            ← contrato único agente ↔ servidor (fonte da verdade)
+├── argus-server/              ← servidor central — Java 21 + Spring Boot (Gradle)
+│   ├── build.gradle.kts
+│   └── src/main/
+│       ├── java/com/argus/
+│       │   ├── config/        ← beans @Configuration
+│       │   ├── grpc/          ← @GrpcService — stream AgentService.Connect
+│       │   ├── web/           ← controllers REST + WebSocket (dashboard)
+│       │   ├── service/       ← regras de negócio + hub de agentes
+│       │   ├── domain/        ← modelo de domínio
+│       │   └── persistence/   ← repositórios JOOQ
+│       └── resources/
+│           ├── application.yml
+│           └── db/migration/  ← migrations Flyway
+├── argus-agent-linux/         ← agente Linux — C++ + gRPC nativo (planejado)
+├── argus-agent-windows/       ← agente Windows — .NET/C# + grpc-dotnet (planejado)
+└── sql/                       ← schema, queries e migrations (PostgreSQL)
 ```
 
 ---
@@ -130,67 +139,59 @@ sudo -u postgres initdb --locale=C.UTF-8 --encoding=UTF8 -D '/var/lib/postgres/d
 sudo systemctl enable --now postgresql
 
 # Criar usuário e banco
-psql -U postgres -c "CREATE USER zero WITH PASSWORD 'sua_senha';"
-psql -U postgres -c "CREATE DATABASE argus OWNER zero;"
+psql -U postgres -c "CREATE USER argus WITH PASSWORD 'sua_senha';"
+psql -U postgres -c "CREATE DATABASE argus OWNER argus;"
+```
 
-# Rodar migrations
-go install github.com/pressly/goose/v3/cmd/goose@latest
-goose -dir sql/migrations postgres "host=localhost user=zero password=sua_senha dbname=argus sslmode=disable" up
+O **Flyway** roda as migrations automaticamente quando o servidor sobe (`spring.flyway`).
+As migrations em `sql/migrations/` ainda estão no formato **goose** e precisam ser
+convertidas para o padrão Flyway — veja `argus-server/src/main/resources/db/migration/README.md`.
+
+Configure a conexão por variáveis de ambiente (com defaults em `application.yml`):
+
+```bash
+export ARGUS_DB_URL=jdbc:postgresql://localhost:5432/argus
+export ARGUS_DB_USER=argus
+export ARGUS_DB_PASSWORD=sua_senha
 ```
 
 ---
 
 ## Build
 
-### Pré-requisitos
+### Servidor (`argus-server/`)
 
-- Go 1.23+
-- `protoc` + plugins Go (apenas para regenerar o proto):
-
-```bash
-go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
-go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
-```
-
-### Compilar
+Pré-requisito: **JDK 21**. O Gradle Wrapper cuida do resto (inclusive o `protoc`).
 
 ```bash
-# Servidor central
-make server
+cd argus-server
 
-# Agente Linux (amd64)
-make agent-linux
-
-# Agente Linux ARM64 (Raspberry Pi, servidores ARM)
-make agent-linux-arm
-
-# Agente Windows
-make agent-windows
-
-# Regenerar código Go a partir do proto
-make proto
-
-# Limpar binários
-make clean
+./gradlew build      # compila, gera os stubs do proto e roda os testes
+./gradlew bootRun    # sobe o servidor (precisa do PostgreSQL acessível)
 ```
 
-Os binários são gerados em `bin/`.
+O servidor expõe a API HTTP/WebSocket na porta `8080` e o listener gRPC na `9090`.
+
+### Agentes
+
+- **Linux (C++)** → `argus-agent-linux/` *(planejado)* — compila nativo no Linux com gRPC C++.
+- **Windows (.NET)** → `argus-agent-windows/` *(planejado)* — `dotnet publish` com grpc-dotnet.
 
 ---
 
 ## Deploy do Agente
 
-Copie o binário para a máquina remota e execute:
+Copie o binário para a máquina remota e execute apontando para o servidor:
 
 ```bash
 # Linux
-scp bin/agent-linux usuario@192.168.1.x:/opt/argus/agent
+scp argus-agent usuario@192.168.1.x:/opt/argus/agent
 ssh usuario@192.168.1.x "/opt/argus/agent --server grpcs://meu-servidor:443 --token TOKEN"
 ```
 
 ```powershell
 # Windows (PowerShell como Administrador)
-.\agent.exe --server grpcs://meu-servidor:443 --token TOKEN
+.\argus-agent.exe --server grpcs://meu-servidor:443 --token TOKEN
 ```
 
 O agente aparece automaticamente no dashboard após a primeira conexão.
@@ -201,13 +202,15 @@ O agente aparece automaticamente no dashboard após a primeira conexão.
 
 | Camada | Tecnologia |
 |--------|-----------|
-| Agent + Server | Go 1.23 |
+| Servidor | Java 21 · Spring Boot · Virtual Threads |
+| Acesso a dados | JOOQ · Flyway · PostgreSQL |
+| Agente Linux | C++ · gRPC nativo |
+| Agente Windows | .NET / C# · grpc-dotnet |
 | Protocolo | gRPC + Protocol Buffers 3 |
-| Frontend | SvelteKit (embedado no binário do server) |
+| Frontend | SvelteKit |
 | Real-time | WebSocket + SSE |
-| Banco de dados | PostgreSQL |
-| Gerenciamento Linux | systemctl · /proc |
-| Gerenciamento Windows | sc.exe · WMI |
+| Gerenciamento Linux | systemd · /proc |
+| Gerenciamento Windows | SCM · WMI |
 
 ---
 
