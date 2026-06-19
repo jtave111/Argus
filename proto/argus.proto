@@ -4,6 +4,11 @@ package argus;
 
 option go_package = "github.com/jtave111/argus/proto";
 
+// Opções Java — o servidor Spring Boot gera structs a partir deste mesmo arquivo.
+option java_package = "com.argus.proto";
+option java_multiple_files = true;
+option java_outer_classname = "ArgusProto";
+
 // AgentService define os RPCs entre agente e servidor.
 service AgentService {
   // Stream bidirecional: agente envia telemetria, servidor envia comandos.
